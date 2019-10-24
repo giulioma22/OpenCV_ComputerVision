@@ -1,0 +1,3 @@
+/home/mmlab/workspace/C++/lab_2.2/CMakeFiles/rebuild_cache.dir
+/home/mmlab/workspace/C++/lab_2.2/CMakeFiles/Mix_of_Gauss.dir
+/home/mmlab/workspace/C++/lab_2.2/CMakeFiles/edit_cache.dir
