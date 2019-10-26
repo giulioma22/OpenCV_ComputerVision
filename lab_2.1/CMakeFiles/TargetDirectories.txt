@@ -1,3 +1,0 @@
-/home/mmlab/workspace/C++/lab_2.1/CMakeFiles/rebuild_cache.dir
-/home/mmlab/workspace/C++/lab_2.1/CMakeFiles/AdaptiveBG.dir
-/home/mmlab/workspace/C++/lab_2.1/CMakeFiles/edit_cache.dir

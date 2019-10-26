@@ -1,3 +1,0 @@
-/home/mmlab/workspace/C++/lab_3/Kalman/CMakeFiles/rebuild_cache.dir
-/home/mmlab/workspace/C++/lab_3/Kalman/CMakeFiles/Kalman.dir
-/home/mmlab/workspace/C++/lab_3/Kalman/CMakeFiles/edit_cache.dir

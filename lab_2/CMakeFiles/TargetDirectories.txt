@@ -1,3 +1,0 @@
-/home/mmlab/workspace/C++/lab_2/CMakeFiles/rebuild_cache.dir
-/home/mmlab/workspace/C++/lab_2/CMakeFiles/FrameDifferencing.dir
-/home/mmlab/workspace/C++/lab_2/CMakeFiles/edit_cache.dir

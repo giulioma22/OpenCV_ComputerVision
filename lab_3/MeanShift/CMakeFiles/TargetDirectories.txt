@@ -1,3 +1,0 @@
-/home/mmlab/workspace/C++/lab_3/MeanShift/CMakeFiles/rebuild_cache.dir
-/home/mmlab/workspace/C++/lab_3/MeanShift/CMakeFiles/MeanShift.dir
-/home/mmlab/workspace/C++/lab_3/MeanShift/CMakeFiles/edit_cache.dir
