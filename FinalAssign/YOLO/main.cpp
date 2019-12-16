@@ -1,6 +1,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <cmath>
 
 #include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
@@ -17,12 +18,18 @@ float nmsThreshold = 0.4;  // Non-maximum suppression threshold
 int inpWidth = 416;  // Width of network's input image
 int inpHeight = 416; // Height of network's input image
 vector<string> classes;
+vector<Point> centroid_list, prev_centroid_list;
+vector<int> ID_list, prev_ID_list;
+int ID = 1;
 
 // Remove the bounding boxes with low confidence using non-maxima suppression
-void postprocess(Mat& frame, const vector<Mat>& out);
+void postprocess(Mat& frame, const vector<Mat>& out, int& frame_num);
 
 // Draw the predicted bounding box
-void drawPred(int classId, float conf, int left, int top, int right, int bottom, Mat& frame);
+void drawPred(int classId, float conf, int left, int top, int right, int bottom, Mat& frame, int& frame_num);
+
+// Compute Euclidian distance of 2 points
+double pointDistance(Point const& a, Point const& b);
 
 // Get the names of the output layers
 vector<String> getOutputsNames(const Net& net);
@@ -45,7 +52,7 @@ int main(int argc, char** argv)
     net.setPreferableTarget(DNN_TARGET_CPU);
     
     Mat frame, blob;
-    
+
     // Create a window
     static const string kWinName = "Detection w/ YOLOv3";
     namedWindow(kWinName, WINDOW_NORMAL);
@@ -70,8 +77,21 @@ int main(int argc, char** argv)
         net.forward(outs, getOutputsNames(net));
         
         // Remove the bounding boxes with low confidence
-        postprocess(frame, outs);
-        
+        postprocess(frame, outs, num);
+
+        // Set current lists as previous ones
+        prev_centroid_list = {};
+        for (int k = 0; k < centroid_list.size(); k++){
+            prev_centroid_list.push_back(centroid_list[k]);
+        }
+        centroid_list = {};
+        prev_ID_list = {};
+        for (int k = 0; k < ID_list.size(); k++){
+            prev_ID_list.push_back(ID_list[k]);
+        }
+        ID_list = {};
+
+
         // Put efficiency information. The function getPerfProfile returns the overall time for inference(t) and the timings for each of the layers(in layersTimes)
         vector<double> layersTimes;
         double freq = getTickFrequency() / 1000;
@@ -83,7 +103,7 @@ int main(int argc, char** argv)
         Mat detectedFrame;
         frame.convertTo(detectedFrame, CV_8U);
         
-        resize(frame,frame,Size(frame.cols*2, frame.rows*2));
+        //resize(frame,frame,Size(frame.cols*2, frame.rows*2));
         imshow(kWinName, frame);
         waitKey(1);
         
@@ -93,7 +113,7 @@ int main(int argc, char** argv)
 }
 
 // Remove the bounding boxes with low confidence using non-maxima suppression
-void postprocess(Mat& frame, const vector<Mat>& outs)
+void postprocess(Mat& frame, const vector<Mat>& outs, int& frame_num)
 {
     vector<int> classIds;
     vector<float> confidences;
@@ -112,7 +132,7 @@ void postprocess(Mat& frame, const vector<Mat>& outs)
             double confidence;
             // Get the value and location of the maximum score
             minMaxLoc(scores, 0, &confidence, 0, &classIdPoint);
-            if (confidence > confThreshold)
+            if (confidence > confThreshold and classes[classIdPoint.x] == "person")
             {
                 int centerX = (int)(data[0] * frame.cols);
                 int centerY = (int)(data[1] * frame.rows);
@@ -127,37 +147,83 @@ void postprocess(Mat& frame, const vector<Mat>& outs)
             }
         }
     }
-    
+
     // Perform non maximum suppression to eliminate redundant overlapping boxes with
     // lower confidences
-    vector<int> indices;
-    NMSBoxes(boxes, confidences, confThreshold, nmsThreshold, indices);
-    for (size_t i = 0; i < indices.size(); ++i)
+    vector<int> tot_bBoxes;
+    NMSBoxes(boxes, confidences, confThreshold, nmsThreshold, tot_bBoxes);
+
+    // Call draw function for bounding boxes
+    for (size_t i = 0; i < tot_bBoxes.size(); ++i)
     {
-        int idx = indices[i];
+        int idx = tot_bBoxes[i];
         Rect box = boxes[idx];
         drawPred(classIds[idx], confidences[idx], box.x, box.y,
-                 box.x + box.width, box.y + box.height, frame);
+                 box.x + box.width, box.y + box.height, frame, frame_num);
     }
 }
 
-// Draw the predicted bounding box
-void drawPred(int classId, float conf, int left, int top, int right, int bottom, Mat& frame)
+// Draw predicted bounding box
+void drawPred(int classId, float conf, int left, int top, int right, int bottom, Mat& frame, int& frame_num)
 {
-    //Draw a rectangle displaying the bounding box
-    //rectangle(frame, Point(left, top), Point(right, bottom), Scalar(0, 255, 0), 3);
-    
-    //Get the label for the class name and its confidence
+    // Draw bounding box
+    rectangle(frame, Point(left, top), Point(right, bottom), Scalar(0, 255, 0), 3);
+
+    double distance = 0;
+    double min_distance = 1000000;
+    int min_ID = -1;
+    int min_idx = 0;
+
+    // Compute center of bounding box
+    Point centroid = Point((left + right)/2, (top + bottom)/2);
+    // Add to centroid list
+    centroid_list.push_back(centroid);
+
+    // Calculate closest centroid and give its ID
+    if (frame_num == 1){
+        putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255), 3);
+        ID_list.push_back(ID);
+        ID++;
+    } else {
+        for (int i = 0; i < prev_centroid_list.size(); i++){
+            distance = pointDistance(centroid,prev_centroid_list[i]);
+            cout << i << " ~ " << distance << endl;
+            if (distance < min_distance and distance < 25){
+                min_distance = distance;
+                min_ID = prev_ID_list[i];
+                min_idx = i;
+            }
+        }
+        cout << "Min IDX: " << min_idx << endl;
+        if (min_ID >= 0){
+            putText(frame, to_string(min_ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255), 3);
+            ID_list.push_back(min_ID);
+            prev_centroid_list.erase(prev_centroid_list.begin() + min_idx);
+            prev_ID_list.erase(prev_ID_list.begin() + min_idx);
+        } else {
+            putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255), 5);
+            ID_list.push_back(ID);
+            ID++;
+        }
+    }
+
+    // Add ID to list
+    //ID_list.push_back(ID);
+
+    // Add ID on detected person
+    //putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255), 5);
+    //ID++;
+
+    // Add label and confidence
     string label;
-    if (!classes.empty() and classes[classId] == "person")
+    label = format("%.2f", conf);
+    if (!classes.empty())
     {
-        label = format("%.2f", conf);
-        rectangle(frame, Point(left, top), Point(right, bottom), Scalar(0, 255, 0), 3);
         CV_Assert(classId < (int)classes.size());
         label = classes[classId] + ":" + label;
     }
     
-    //Display the label at the top of the bounding box
+    // Display the label at the top of the bounding box
     int baseLine;
     Size labelSize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
     top = max(top, labelSize.height);
@@ -183,4 +249,8 @@ vector<String> getOutputsNames(const Net& net)
         names[i] = layersNames[outLayers[i] - 1];
     }
     return names;
+}
+
+double pointDistance(Point const& a, Point const& b){
+    return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
 }
