@@ -12,6 +12,9 @@ using namespace cv;
 using namespace dnn;
 using namespace std;
 
+ofstream result_detec ("../results/detection.txt");
+ofstream result_track ("../results/tracking.txt");
+
 // Initialize the parameters
 float confThreshold = 0.5; // Confidence threshold
 float nmsThreshold = 0.4;  // Non-maximum suppression threshold
@@ -21,6 +24,9 @@ vector<string> classes;
 vector<Point> centroid_list, prev_centroid_list;
 vector<int> ID_list, prev_ID_list;
 int ID = 1;
+
+// Threshold for tracking max distance allowed between centroids in 2 consecutive frames
+int near_threshold = 25;
 
 // Remove the bounding boxes with low confidence using non-maxima suppression
 void postprocess(Mat& frame, const vector<Mat>& out, int& frame_num);
@@ -53,17 +59,13 @@ int main(int argc, char** argv)
     
     Mat frame, blob;
 
-    // Create a window
-    static const string kWinName = "Detection w/ YOLOv3";
-    namedWindow(kWinName, WINDOW_NORMAL);
-
     // Process frames
     for (int num = 1; num <= 795; num++)
     {
         String file_name = "/home/mmlab/workspace/C++/FinalAssign/Video/img1/000001.jpg";
         // Loop over images by changing file name
         file_name.replace(file_name.end()-(4+to_string(num).size()), file_name.end()-4, to_string(num));
-        cout << file_name << endl;
+        cout << file_name << endl << endl;
         frame = imread(file_name);
 
         // Create a 4D blob from a frame.
@@ -92,22 +94,21 @@ int main(int argc, char** argv)
         ID_list = {};
 
 
-        // Put efficiency information. The function getPerfProfile returns the overall time for inference(t) and the timings for each of the layers(in layersTimes)
-        vector<double> layersTimes;
-        double freq = getTickFrequency() / 1000;
-        double t = net.getPerfProfile(layersTimes) / freq;
-        string label = format("Inference time for a frame : %.2f ms", t);
-        putText(frame, label, Point(0, 15), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 255));
+        string label = format("Image %.i", num);
+        putText(frame, label, Point(10, 25), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(255, 255, 255), 2);
         
         // Write the frame with the detection boxes
         Mat detectedFrame;
         frame.convertTo(detectedFrame, CV_8U);
         
         //resize(frame,frame,Size(frame.cols*2, frame.rows*2));
-        imshow(kWinName, frame);
+        imshow("Detection & Tracking", frame);
         waitKey(1);
         
     }
+
+    result_detec.close();
+    result_track.close();
     
     return 0;
 }
@@ -167,7 +168,7 @@ void postprocess(Mat& frame, const vector<Mat>& outs, int& frame_num)
 void drawPred(int classId, float conf, int left, int top, int right, int bottom, Mat& frame, int& frame_num)
 {
     // Draw bounding box
-    rectangle(frame, Point(left, top), Point(right, bottom), Scalar(0, 255, 0), 3);
+    rectangle(frame, Point(left, top), Point(right, bottom), Scalar(255, 0, 0), 3);
 
     double distance = 0;
     double min_distance = 1000000;
@@ -179,40 +180,39 @@ void drawPred(int classId, float conf, int left, int top, int right, int bottom,
     // Add to centroid list
     centroid_list.push_back(centroid);
 
+    // Write in detection.txt
+    result_detec << to_string(frame_num) << ", " << to_string(left) << ", " << to_string(top) << ", " << to_string(right-left) << ", " << to_string(bottom-top) << endl;
+
     // Calculate closest centroid and give its ID
-    if (frame_num == 1){
-        putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255), 3);
+    if (frame_num == 1){    // If first frame
+        putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,255), 3);
+        result_track << to_string(frame_num) << ", " << to_string(ID) << ", " << to_string(centroid.x) << ", " << to_string(centroid.y) << endl;
         ID_list.push_back(ID);
         ID++;
     } else {
         for (int i = 0; i < prev_centroid_list.size(); i++){
             distance = pointDistance(centroid,prev_centroid_list[i]);
-            cout << i << " ~ " << distance << endl;
-            if (distance < min_distance and distance < 25){
+            cout << prev_ID_list[i] << " ~ " << distance << endl;
+            if (distance < min_distance and distance < near_threshold){
                 min_distance = distance;
                 min_ID = prev_ID_list[i];
                 min_idx = i;
             }
         }
-        cout << "Min IDX: " << min_idx << endl;
+        cout << endl;
         if (min_ID >= 0){
-            putText(frame, to_string(min_ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255), 3);
+            putText(frame, to_string(min_ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,255), 3);
             ID_list.push_back(min_ID);
             prev_centroid_list.erase(prev_centroid_list.begin() + min_idx);
             prev_ID_list.erase(prev_ID_list.begin() + min_idx);
+            result_track << to_string(frame_num) << ", " << to_string(min_ID) << ", " << to_string(centroid.x) << ", " << to_string(centroid.y) << endl;
         } else {
-            putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255), 5);
+            putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,225,225), 5);
+            result_track << to_string(frame_num) << ", " << to_string(ID) << ", " << to_string(centroid.x) << ", " << to_string(centroid.y) << endl;
             ID_list.push_back(ID);
             ID++;
         }
     }
-
-    // Add ID to list
-    //ID_list.push_back(ID);
-
-    // Add ID on detected person
-    //putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255), 5);
-    //ID++;
 
     // Add label and confidence
     string label;
@@ -223,12 +223,6 @@ void drawPred(int classId, float conf, int left, int top, int right, int bottom,
         label = classes[classId] + ":" + label;
     }
     
-    // Display the label at the top of the bounding box
-    int baseLine;
-    Size labelSize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-    top = max(top, labelSize.height);
-    rectangle(frame, Point(left, top - round(1.5*labelSize.height)), Point(left + round(1.5*labelSize.width), top + baseLine), Scalar(255, 255, 255), FILLED);
-    putText(frame, label, Point(left, top), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0,0,0),1);
 }
 
 // Get the names of the output layers
@@ -251,6 +245,7 @@ vector<String> getOutputsNames(const Net& net)
     return names;
 }
 
+// Compute Euclidian distance of 2 points
 double pointDistance(Point const& a, Point const& b){
     return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
 }
