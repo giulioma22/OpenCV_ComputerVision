@@ -21,12 +21,13 @@ float nmsThreshold = 0.4;  // Non-maximum suppression threshold
 int inpWidth = 416;  // Width of network's input image
 int inpHeight = 416; // Height of network's input image
 vector<string> classes;
-vector<Point> centroid_list, prev_centroid_list;
+vector<Point> centroid_list, prev_centroid_list, unlabeled_bBoxes;
 vector<int> ID_list, prev_ID_list;
+vector<pair<int, Point>> lost_list;
 int ID = 1;
 
 // Threshold for tracking max distance allowed between centroids in 2 consecutive frames
-int near_threshold = 25;
+int near_threshold = 50;
 
 // Remove the bounding boxes with low confidence using non-maxima suppression
 void postprocess(Mat& frame, const vector<Mat>& out, int& frame_num);
@@ -45,7 +46,7 @@ int main(int argc, char** argv)
     // Load names of classes
     string classesFile = "/home/mmlab/workspace/C++/FinalAssign/YOLO/coco.names";
     ifstream ifs(classesFile.c_str());
-    string line;
+    string line, output_image;
     while (getline(ifs, line)) classes.push_back(line);
     
     // Give the configuration and weight files for the model
@@ -63,8 +64,10 @@ int main(int argc, char** argv)
     for (int num = 1; num <= 795; num++)
     {
         String file_name = "/home/mmlab/workspace/C++/FinalAssign/Video/img1/000001.jpg";
+        output_image = "/home/mmlab/workspace/C++/FinalAssign/YOLO/img/output_0001.jpg";
         // Loop over images by changing file name
         file_name.replace(file_name.end()-(4+to_string(num).size()), file_name.end()-4, to_string(num));
+        output_image.replace(output_image.end()-(4+to_string(num).size()), output_image.end()-4, to_string(num));
         cout << file_name << endl << endl;
         frame = imread(file_name);
 
@@ -80,6 +83,48 @@ int main(int argc, char** argv)
         
         // Remove the bounding boxes with low confidence
         postprocess(frame, outs, num);
+
+        // If previous list still has elements, save them in lost_list
+        if (prev_centroid_list.size() == prev_ID_list.size() != 0){
+            for (int i = 0; i < prev_centroid_list.size(); i++){
+                cout << prev_ID_list[i] << " ~ " << prev_centroid_list[i] << endl;
+                lost_list.push_back(make_pair(prev_ID_list[i], prev_centroid_list[i]));
+            }
+        }
+
+        if (num > 1 and unlabeled_bBoxes.size() > 0 and lost_list.size() > 0){
+            double dist = 0;
+            double min_dist = 1000000;
+            int minID = -1;
+            int minidx = -1;
+            // Assign non-labeled bBoxes to closest lost ID
+            for (int i = 0; i < unlabeled_bBoxes.size(); i++){
+                for (int j = 0; j < lost_list.size(); j++){
+                    dist = pointDistance(unlabeled_bBoxes[i], get<1>(lost_list[j]));
+                    if (dist < min_dist and dist < near_threshold+75){
+                        min_dist = dist;
+                        minID = get<0>(lost_list[j]);
+                        minidx = j;
+                    }
+                }
+
+                if (minID != -1){
+                    
+                    putText(frame, to_string(minID), unlabeled_bBoxes[i], FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,255), 3);
+                    centroid_list.push_back(unlabeled_bBoxes[i]);
+                    ID_list.push_back(minID);
+                    lost_list.erase(lost_list.begin() + minidx);
+                    result_track << to_string(num) << ", " << to_string(minID) << ", " << to_string(unlabeled_bBoxes[i].x) << ", " << to_string(unlabeled_bBoxes[i].y) << endl;
+                    if (lost_list.size() > 0){
+                        break;
+                    }
+                }
+
+            }
+
+        }
+
+        unlabeled_bBoxes = {};
 
         // Set current lists as previous ones
         prev_centroid_list = {};
@@ -100,8 +145,8 @@ int main(int argc, char** argv)
         // Write the frame with the detection boxes
         Mat detectedFrame;
         frame.convertTo(detectedFrame, CV_8U);
+        imwrite(output_image, detectedFrame);
         
-        //resize(frame,frame,Size(frame.cols*2, frame.rows*2));
         imshow("Detection & Tracking", frame);
         waitKey(1);
         
@@ -173,54 +218,64 @@ void drawPred(int classId, float conf, int left, int top, int right, int bottom,
     double distance = 0;
     double min_distance = 1000000;
     int min_ID = -1;
-    int min_idx = 0;
+    int min_idx = -1;
+    bool has_ID = false;
 
     // Compute center of bounding box
     Point centroid = Point((left + right)/2, (top + bottom)/2);
-    // Add to centroid list
-    centroid_list.push_back(centroid);
 
     // Write in detection.txt
     result_detec << to_string(frame_num) << ", " << to_string(left) << ", " << to_string(top) << ", " << to_string(right-left) << ", " << to_string(bottom-top) << endl;
 
     // Calculate closest centroid and give its ID
     if (frame_num == 1){    // If first frame
+
         putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,255), 3);
         result_track << to_string(frame_num) << ", " << to_string(ID) << ", " << to_string(centroid.x) << ", " << to_string(centroid.y) << endl;
+        centroid_list.push_back(centroid);
         ID_list.push_back(ID);
+        has_ID = true;
         ID++;
+
     } else {
+
+        // Calculate distance from all previous frame points to get same ID as closest
         for (int i = 0; i < prev_centroid_list.size(); i++){
-            distance = pointDistance(centroid,prev_centroid_list[i]);
-            cout << prev_ID_list[i] << " ~ " << distance << endl;
+            distance = pointDistance(centroid, prev_centroid_list[i]);
+            // cout << prev_ID_list[i] << " ~ " << distance << endl;
             if (distance < min_distance and distance < near_threshold){
                 min_distance = distance;
                 min_ID = prev_ID_list[i];
                 min_idx = i;
             }
         }
-        cout << endl;
+
+        // Frame width = 768, height = 576
         if (min_ID >= 0){
+
             putText(frame, to_string(min_ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,255), 3);
+            centroid_list.push_back(centroid);
             ID_list.push_back(min_ID);
+            has_ID = true;
             prev_centroid_list.erase(prev_centroid_list.begin() + min_idx);
             prev_ID_list.erase(prev_ID_list.begin() + min_idx);
             result_track << to_string(frame_num) << ", " << to_string(min_ID) << ", " << to_string(centroid.x) << ", " << to_string(centroid.y) << endl;
-        } else {
+
+        } else if (centroid.x < 0 or centroid.y < 100 or centroid.x > 768-150 or centroid.y > 576-150){ // CHANGED
+            
+            // No close bBox and at the sides
             putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,225,225), 5);
             result_track << to_string(frame_num) << ", " << to_string(ID) << ", " << to_string(centroid.x) << ", " << to_string(centroid.y) << endl;
+            centroid_list.push_back(centroid);
             ID_list.push_back(ID);
+            has_ID = true;
             ID++;
         }
     }
 
-    // Add label and confidence
-    string label;
-    label = format("%.2f", conf);
-    if (!classes.empty())
-    {
-        CV_Assert(classId < (int)classes.size());
-        label = classes[classId] + ":" + label;
+    // Keep track of unlabeled bounding boxes
+    if (!has_ID){
+        unlabeled_bBoxes.push_back(centroid);
     }
     
 }
