@@ -101,15 +101,16 @@ int main(int argc, char** argv)
             for (int i = 0; i < unlabeled_bBoxes.size(); i++){
                 for (int j = 0; j < lost_list.size(); j++){
                     dist = pointDistance(unlabeled_bBoxes[i], get<1>(lost_list[j]));
-                    if (dist < min_dist and dist < near_threshold+75){
+                    if (dist < min_dist and dist < near_threshold+150){
                         min_dist = dist;
                         minID = get<0>(lost_list[j]);
                         minidx = j;
                     }
                 }
 
+                // If there was a match within threshold
                 if (minID != -1){
-                    
+
                     putText(frame, to_string(minID), unlabeled_bBoxes[i], FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,255), 3);
                     centroid_list.push_back(unlabeled_bBoxes[i]);
                     ID_list.push_back(minID);
@@ -137,7 +138,6 @@ int main(int argc, char** argv)
             prev_ID_list.push_back(ID_list[k]);
         }
         ID_list = {};
-
 
         string label = format("Image %.i", num);
         putText(frame, label, Point(10, 25), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(255, 255, 255), 2);
@@ -250,7 +250,7 @@ void drawPred(int classId, float conf, int left, int top, int right, int bottom,
             }
         }
 
-        // Frame width = 768, height = 576
+        // Check if any of the previous centroids was close enough
         if (min_ID >= 0){
 
             putText(frame, to_string(min_ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,255), 3);
@@ -261,9 +261,9 @@ void drawPred(int classId, float conf, int left, int top, int right, int bottom,
             prev_ID_list.erase(prev_ID_list.begin() + min_idx);
             result_track << to_string(frame_num) << ", " << to_string(min_ID) << ", " << to_string(centroid.x) << ", " << to_string(centroid.y) << endl;
 
-        } else if (centroid.x < 0 or centroid.y < 100 or centroid.x > 768-150 or centroid.y > 576-150){ // CHANGED
+        } else if (centroid.x < 0 or centroid.y < 100 or centroid.x > 730 or centroid.y > 450){ // If centroid on sides
             
-            // No close bBox and at the sides
+            // No close centroid and on the sides
             putText(frame, to_string(ID), centroid, FONT_HERSHEY_SIMPLEX, 1, Scalar(0,225,225), 5);
             result_track << to_string(frame_num) << ", " << to_string(ID) << ", " << to_string(centroid.x) << ", " << to_string(centroid.y) << endl;
             centroid_list.push_back(centroid);
